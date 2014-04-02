@@ -189,12 +189,12 @@ func (c *Command) ParseFlags(args []string) (result *flag.FlagSet, argsNoFlags [
 	// Ensure command is initialized.
 	c.init()
 
-	parseFlags := func(c *Command, args []string, flags *flag.FlagSet) (leftArgs []string, err error) {
+	parseFlags := func(c *Command, args []string, flags *flag.FlagSet, setValue bool) (leftArgs []string, err error) {
 		flags.Usage = func() {
 			c.Usage()
 			err = fmt.Errorf("Failed to parse flags.")
 		}
-		flags.Parse(args)
+		flags.Parse(args, setValue)
 		if err != nil {
 			return
 		}
@@ -208,7 +208,7 @@ func (c *Command) ParseFlags(args []string) (result *flag.FlagSet, argsNoFlags [
 	argsNoFlags = []string{}
 
 	for len(arguments) > 0 {
-		arguments, err = parseFlags(path[len(path)-1], arguments, c.mergedFlags)
+		arguments, err = parseFlags(path[len(path)-1], arguments, c.mergedFlags, false)
 		if err != nil {
 			return
 		}
@@ -245,7 +245,7 @@ func (c *Command) ParseFlags(args []string) (result *flag.FlagSet, argsNoFlags [
 	arguments = append([]string(nil), args...)
 
 	for _, cmd := range path {
-		arguments, err = parseFlags(cmd, arguments, result)
+		arguments, err = parseFlags(cmd, arguments, result, true)
 		if err != nil {
 			return
 		}

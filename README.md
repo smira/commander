@@ -1,9 +1,13 @@
 commander
 ============
 
-[![Build Status](https://drone.io/github.com/gonuts/commander/status.png)](https://drone.io/github.com/gonuts/commander/latest)
+``commander`` is a fork of a spin off of [golang](http://golang.org) ``go tool`` infrastructure to provide commands and sub-commands.
 
-``commander`` is a spin off of [golang](http://golang.org) ``go tool`` infrastructure to provide commands and sub-commands.
+Difference with [original](http://github.com/gonuts/commander/):
+
+- flags could be placed anywhere on the command line
+- flags in whole subcommand tree should be non-conflicting (i.e. one name - one value type)
+- interface has changed: first flags should be parsed, then command dispatched
 
 A ``commander.Command`` has a ``Subcommands`` field holding ``[]*commander.Command`` subcommands, referenced by name from the command line.
 

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/gonuts/flag"
+	"github.com/smira/flag"
 )
 
 // UsageSection differentiates between sections in the usage text.
@@ -77,6 +77,9 @@ type Command struct {
 	// point them at any io.Writer
 	Stdout io.Writer
 	Stderr io.Writer
+
+	// mergedFlags is merged flagset from this command and all subcommands
+	mergedFlags *flag.FlagSet
 }
 
 // Name returns the command's name: the first word in the usage line.
@@ -97,8 +100,13 @@ func (c *Command) Usage() {
 // FlagOptions returns the flag's options as a string
 func (c *Command) FlagOptions() string {
 	var buf bytes.Buffer
-	c.Flag.SetOutput(&buf)
-	c.Flag.PrintDefaults()
+
+	flags := flag.NewFlagSet("help", 0)
+	for cmd := c; cmd != nil; cmd = cmd.Parent {
+		flags.Merge(&cmd.Flag)
+	}
+	flags.SetOutput(&buf)
+	flags.PrintDefaults()
 
 	str := string(buf.Bytes())
 	if len(str) > 0 {
@@ -166,6 +174,88 @@ func (c *Command) init() {
 	for _, cmd := range c.Subcommands {
 		cmd.Parent = c
 	}
+
+	// merge flags
+	c.mergedFlags = flag.NewFlagSet("merged", flag.ContinueOnError)
+	c.mergedFlags.Merge(&c.Flag)
+
+	for _, cmd := range c.Subcommands {
+		c.mergedFlags.Merge(cmd.mergedFlags)
+	}
+}
+
+// ParseFlags parses flags in whole command subtree and returns resulting FlagSet
+func (c *Command) ParseFlags(args []string) (result *flag.FlagSet, argsNoFlags []string, err error) {
+	// Ensure command is initialized.
+	c.init()
+
+	parseFlags := func(c *Command, args []string, flags *flag.FlagSet) (leftArgs []string, err error) {
+		flags.Usage = func() {
+			c.Usage()
+			err = fmt.Errorf("Failed to parse flags.")
+		}
+		flags.Parse(args)
+		if err != nil {
+			return
+		}
+		leftArgs = flags.Args()
+		return
+	}
+
+	// First pass, go with merged flags and figure out command path
+	path := []*Command{c}
+	arguments := append([]string(nil), args...)
+	argsNoFlags = []string{}
+
+	for len(arguments) > 0 {
+		arguments, err = parseFlags(path[len(path)-1], arguments, c.mergedFlags)
+		if err != nil {
+			return
+		}
+
+		if len(arguments) > 0 {
+			found := false
+
+			for _, cmd := range path[len(path)-1].Subcommands {
+				if cmd.Name() == arguments[0] {
+					path = append(path, cmd)
+					argsNoFlags = append(argsNoFlags, arguments[0])
+					arguments = arguments[1:]
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				break
+			}
+		}
+	}
+
+	argsNoFlags = append(argsNoFlags, arguments...)
+
+	// Build resulting flagset
+	result = flag.NewFlagSet("result", flag.ExitOnError)
+
+	for _, cmd := range path {
+		result.Merge(&cmd.Flag)
+	}
+
+	// Parse flags finally
+	arguments = append([]string(nil), args...)
+
+	for _, cmd := range path {
+		arguments, err = parseFlags(cmd, arguments, result)
+		if err != nil {
+			return
+		}
+
+		if len(arguments) > 0 {
+			arguments = arguments[1:]
+		}
+	}
+
+	return
 }
 
 // Dispatch executes the command using the provided arguments.
@@ -206,18 +296,6 @@ func (c *Command) Dispatch(args []string) error {
 
 	// then, try running this command
 	if c.Runnable() {
-		if !c.CustomFlags {
-			var err = error(nil)
-			c.Flag.Usage = func() {
-				c.Usage()
-				err = fmt.Errorf("Failed to parse flags.")
-			}
-			c.Flag.Parse(args)
-			if err != nil {
-				return err
-			}
-			args = c.Flag.Args()
-		}
 		return c.Run(c, args)
 	}
 
